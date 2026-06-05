@@ -9,14 +9,7 @@ class AppState {
   loadedPath = $state<string>('');
   cpuStatus = $state<string>('Inactivo');
 
-  // Derived filtered rows (automatically computed without blocking)
-  get filteredRows() {
-    const q = this.filterQuery.trim().toLowerCase();
-    if (!q) return this.rawRows;
-    return this.rawRows.filter(row => 
-      Object.values(row).some(v => String(v).toLowerCase().includes(q))
-    );
-  }
+  filteredRows = $state<any[]>([]);
 
   // Helper to extract unique columns from the loaded rows
   get columns() {

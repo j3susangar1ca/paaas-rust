@@ -175,6 +175,45 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
 }
 
 #[tauri::command]
+fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> {
+    let cache = get_dataframe_cache().lock().unwrap();
+    let df = match &*cache {
+        Some(df) => df,
+        None => return Ok("[]".to_string()),
+    };
+
+    let q = query.trim();
+    if q.is_empty() {
+        if tipo == "inventario" {
+            return exportar_inventario_elite_definitivo(df).map_err(|e| e.to_string());
+        } else {
+            return exportar_json_estricto(df).map_err(|e| e.to_string());
+        }
+    }
+
+    let q_upper = q.to_uppercase();
+    let cols = df.get_column_names();
+    let mut predicate = lit(false);
+    for col_name in cols {
+        let cond = col(col_name)
+            .cast(DataType::String)
+            .str()
+            .to_uppercase()
+            .str()
+            .contains(lit(q_upper.clone()), true);
+        predicate = predicate.or(cond);
+    }
+
+    let filtered_df = df.clone().lazy().filter(predicate).collect().map_err(|e| e.to_string())?;
+
+    if tipo == "inventario" {
+        exportar_inventario_elite_definitivo(&filtered_df).map_err(|e| e.to_string())
+    } else {
+        exportar_json_estricto(&filtered_df).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
 fn guardar_archivo_csv(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("Error al guardar el archivo: {}", e))
 }
@@ -184,7 +223,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![procesar_csv_command, obtener_datos_decimados, guardar_archivo_csv])
+        .invoke_handler(tauri::generate_handler![
+            procesar_csv_command,
+            obtener_datos_decimados,
+            guardar_archivo_csv,
+            filtrar_datos_command
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
