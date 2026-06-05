@@ -60,47 +60,10 @@ pub fn procesar_etl_dsa(path_csv: &str) -> Result<DataFrame, Box<dyn Error>> {
 
 
 
-#[inline(always)]
-fn format_hex_byte(byte: u8) -> [u8; 2] {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    [HEX[(byte >> 4) as usize], HEX[(byte & 0x0F) as usize]]
-}
-
-fn write_json_escaped(buf: &mut Vec<u8>, s: &str) {
-    buf.push(b'"');
-    let bytes = s.as_bytes();
-    let mut last_idx = 0;
-
-    for (i, &b) in bytes.iter().enumerate() {
-        let escape_seq: &[u8] = match b {
-            b'"' => b"\\\"",
-            b'\\' => b"\\\\",
-            b'\x08' => b"\\b",
-            b'\x0C' => b"\\f",
-            b'\n' => b"\\n",
-            b'\r' => b"\\r",
-            b'\t' => b"\\t",
-            0x00..=0x1F => b"\\u00",
-            _ => continue,
-        };
-
-        buf.extend_from_slice(&bytes[last_idx..i]);
-        buf.extend_from_slice(escape_seq);
-
-        if b <= 0x1F && b != b'\x08' && b != b'\x0C' && b != b'\n' && b != b'\r' && b != b'\t' {
-            buf.extend_from_slice(&format_hex_byte(b));
-        }
-        
-        last_idx = i + 1;
-    }
-    buf.extend_from_slice(&bytes[last_idx..]);
-    buf.push(b'"');
-}
-
 fn inyectar_cadena(buffer: &mut Vec<u8>, clave: &[u8], valor: Option<&str>) {
     buffer.extend_from_slice(clave);
     if let Some(s) = valor {
-        write_json_escaped(buffer, s);
+        crate::json_utils::write_json_escaped(buffer, s);
     } else {
         buffer.extend_from_slice(b"null");
     }
