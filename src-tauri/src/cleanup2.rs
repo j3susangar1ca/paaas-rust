@@ -24,19 +24,7 @@ pub fn procesar_etl_inventario_elite(path_csv: &str) -> Result<DataFrame, Box<dy
     Ok(df_optimizado)
 }
 
-/// Funciones de utilidad para cálculo y escape JSON RFC 8259
-#[inline]
-fn json_escaped_len(s: &str) -> usize {
-    let mut len = s.len() + 2; // Comillas iniciales y finales
-    for b in s.bytes() {
-        match b {
-            b'"' | b'\\' | b'\x08' | b'\x0C' | b'\n' | b'\r' | b'\t' => len += 1,
-            0x00..=0x1F => len += 5, // \uXXXX (se añaden 5 bytes extra al byte original)
-            _ => {}
-        }
-    }
-    len
-}
+
 
 #[inline(always)]
 fn format_hex_byte(byte: u8) -> [u8; 2] {
@@ -80,7 +68,7 @@ fn write_json_escaped(buf: &mut Vec<u8>, s: &str) {
 }
 
 
-/// 🔬 FASE 3: Serialización Híbrida (Zero-Copy Numérico, Allocación Segura 1-Pass)
+/// 🔬 FASE 3: Serialización Híbrida (Zero-Copy Numérico, Allocación Segura Pasada Única)
 pub fn exportar_inventario_elite_definitivo(df: &DataFrame) -> Result<String, Box<dyn Error>> {
     let n = df.height();
     if n == 0 { return Ok("[]".to_string()); }
@@ -93,34 +81,6 @@ pub fn exportar_inventario_elite_definitivo(df: &DataFrame) -> Result<String, Bo
     let c_prec = df.column("precio_unitario")?.f64()?;
     let c_imp = df.column("importe")?.f64()?;
 
-    // ==================== CÁLCULO HÍBRIDO DE CAPACIDAD ====================
-    // Calculamos exactitud para Strings (O(L) barato) pero usamos cota superior 
-    // para Numéricos (evitando el severo cuello de botella de formatearlos dos veces).
-    let mut capacidad_total = 2; // `[` y `]`
-    
-    // Las claves y signos de puntuación JSON fijos ocupan 105 bytes exactos por fila.
-    // Cota máxima matemática: i64 (20 bytes) * 2 + f64 (24 bytes) * 2 = 88 bytes.
-    // Total estructural máximo por fila: 105 + 88 = 193 bytes + Longitud dinámica de Strings.
-    let base_per_row = 193; 
-    
-    let mut it_cod_len = c_cod.into_iter();
-    let mut it_desc_len = c_desc.into_iter();
-    for _ in 0..n {
-        capacidad_total += base_per_row;
-        if let Some(s) = it_cod_len.next().unwrap() { capacidad_total += json_escaped_len(s); } else { capacidad_total += 4; }
-        if let Some(s) = it_desc_len.next().unwrap() { capacidad_total += json_escaped_len(s); } else { capacidad_total += 4; }
-    }
-
-    // ==================== ESCRITURA ÚNICA DIRECTA ====================
-    let mut buffer: Vec<u8> = Vec::with_capacity(capacidad_total);
-    buffer.push(b'[');
-
-    // Buffers independientes reusables para prevenir aliasing y zero-allocation.
-    let mut itoa_ext = itoa::Buffer::new();
-    let mut itoa_stk = itoa::Buffer::new();
-    let mut ryu_prec = ryu::Buffer::new();
-    let mut ryu_imp  = ryu::Buffer::new();
-
     let mut it_activo = c_activo.into_iter();
     let mut it_cod = c_cod.into_iter();
     let mut it_desc = c_desc.into_iter();
@@ -129,17 +89,27 @@ pub fn exportar_inventario_elite_definitivo(df: &DataFrame) -> Result<String, Bo
     let mut it_prec = c_prec.into_iter();
     let mut it_imp = c_imp.into_iter();
 
+    // Buffers independientes reusables para prevenir aliasing y zero-allocation.
+    let mut itoa_ext = itoa::Buffer::new();
+    let mut itoa_stk = itoa::Buffer::new();
+    let mut ryu_prec = ryu::Buffer::new();
+    let mut ryu_imp  = ryu::Buffer::new();
+
+    // Pre-alocación generosa (estimación de ~200 bytes por fila) para evitar re-alocaciones en el heap
+    let mut buffer: Vec<u8> = Vec::with_capacity(n * 200);
+    buffer.push(b'[');
+
     for i in 0..n {
         if i > 0 { buffer.push(b','); }
         buffer.push(b'{');
 
-        let v_activo = it_activo.next().unwrap();
-        let v_cod = it_cod.next().unwrap();
-        let v_desc = it_desc.next().unwrap();
-        let v_ext = it_ext.next().unwrap();
-        let v_stk = it_stk.next().unwrap();
-        let v_prec = it_prec.next().unwrap();
-        let v_imp = it_imp.next().unwrap();
+        let v_activo = it_activo.next().flatten();
+        let v_cod = it_cod.next().flatten();
+        let v_desc = it_desc.next().flatten();
+        let v_ext = it_ext.next().flatten();
+        let v_stk = it_stk.next().flatten();
+        let v_prec = it_prec.next().flatten();
+        let v_imp = it_imp.next().flatten();
 
         // activo
         buffer.extend_from_slice(b"\"activo\":");
@@ -177,10 +147,9 @@ pub fn exportar_inventario_elite_definitivo(df: &DataFrame) -> Result<String, Bo
     }
     buffer.push(b']');
 
-    // Retorna la memoria no utilizada (el remanente de las cotas máximas numéricas) al OS.
+    // Retorna la memoria no utilizada al OS.
     buffer.shrink_to_fit();
 
-    // Invariante matemático comprobado por diseño.
     let json_payload = unsafe { String::from_utf8_unchecked(buffer) };
     Ok(json_payload)
 }
