@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { appState } from '$lib/store/dataState';
+  import { appState } from '$lib/store/dataState.svelte';
 
   let chartEl = $state<HTMLDivElement | null>(null);
   let chartLoading = $state(false);
