@@ -4395,6 +4395,7 @@ dependencies = [
 name = "tauri-app"
 version = "0.1.0"
 dependencies = [
+ "hashbrown 0.14.5",
  "itoa",
  "polars",
  "ryu",
