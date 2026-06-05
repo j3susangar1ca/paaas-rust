@@ -151,7 +151,9 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
     let x_iter = match x_ref.dtype() {
         DataType::String => {
             let ca = x_ref.str().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter().map(|opt_s| opt_s.and_then(parse_date_to_epoch_days))) as Box<dyn Iterator<Item = Option<f64>>>
+            Box::new(ca.into_iter().map(|opt_s| {
+                opt_s.and_then(|s| parse_date_to_epoch_days(s).or_else(|| s.parse::<f64>().ok()))
+            })) as Box<dyn Iterator<Item = Option<f64>>>
         }
         DataType::Int64 => {
             let ca = x_ref.i64().map_err(|e| e.to_string())?;
@@ -166,7 +168,9 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
     let y_iter = match y_ref.dtype() {
         DataType::String => {
             let ca = y_ref.str().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter().map(|opt_s| opt_s.and_then(parse_date_to_epoch_days))) as Box<dyn Iterator<Item = Option<f64>>>
+            Box::new(ca.into_iter().map(|opt_s| {
+                opt_s.and_then(|s| parse_date_to_epoch_days(s).or_else(|| s.parse::<f64>().ok()))
+            })) as Box<dyn Iterator<Item = Option<f64>>>
         }
         DataType::Int64 => {
             let ca = y_ref.i64().map_err(|e| e.to_string())?;
