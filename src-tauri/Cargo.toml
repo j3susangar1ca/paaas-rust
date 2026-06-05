@@ -26,6 +26,7 @@ polars = { version = "0.41", features = ["lazy", "temporal", "dtype-categorical"
 ryu = "1.0"
 itoa = "1.0"
 hashbrown = { version = "0.14", features = ["raw"] }
+tauri-plugin-dialog = "2"
 
 
 
