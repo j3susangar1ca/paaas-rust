@@ -4,20 +4,15 @@
 
   let parentEl = $state<HTMLDivElement | null>(null);
 
-  // Re-create virtualizer reactively when parent element or rows changes
-  const virtualizer = $derived(
-    parentEl
-      ? createVirtualizer({
-          count: appState.filteredRows.length,
-          getScrollElement: () => parentEl,
-          estimateSize: () => 40,
-          overscan: 15,
-        })
-      : null
-  );
+  const virtualizer = createVirtualizer({
+    get count() { return appState.filteredRows.length; },
+    getScrollElement: () => parentEl,
+    estimateSize: () => 40,
+    overscan: 15,
+  });
 
-  let virtualItems = $derived(virtualizer ? virtualizer.getVirtualItems() : []);
-  let totalSize = $derived(virtualizer ? virtualizer.getTotalSize() : 0);
+  let virtualItems = $derived($virtualizer.getVirtualItems());
+  let totalSize = $derived($virtualizer.getTotalSize());
 </script>
 
 <div class="h-full w-full flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">

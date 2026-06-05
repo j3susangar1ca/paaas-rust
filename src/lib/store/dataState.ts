@@ -19,7 +19,7 @@ class AppState {
 
   // Helper to extract unique columns from the loaded rows
   get columns() {
-    if (this.rawRows.len === 0 || !this.rawRows[0]) return [];
+    if (this.rawRows.length === 0 || !this.rawRows[0]) return [];
     return Object.keys(this.rawRows[0]);
   }
 }
