@@ -371,13 +371,13 @@ mod tests {
     #[test]
     fn test_date_to_days() {
         assert_eq!(date_to_days(1970, 1, 1), 0);
-        assert_eq!(date_to_days(2026, 6, 5), 20611);
+        assert_eq!(date_to_days(2026, 6, 5), 20609);
     }
 
     #[test]
     fn test_parse_date_to_epoch_days() {
         assert_eq!(parse_date_to_epoch_days("1970-01-01"), Some(0.0));
-        assert_eq!(parse_date_to_epoch_days("2026-06-05"), Some(20611.0));
+        assert_eq!(parse_date_to_epoch_days("2026-06-05"), Some(20609.0));
         assert_eq!(parse_date_to_epoch_days("not-a-date"), None);
     }
 
