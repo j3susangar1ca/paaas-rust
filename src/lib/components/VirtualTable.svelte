@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createVirtualizer } from '@tanstack/svelte-virtual';
-  import { appState } from '$lib/store/dataState';
+  import { appState } from '$lib/store/dataState.svelte';
 
   let parentEl = $state<HTMLDivElement | null>(null);
 

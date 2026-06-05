@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { appState } from '$lib/store/dataState';
+  import { appState } from '$lib/store/dataState.svelte';
   import VirtualTable from '$lib/components/VirtualTable.svelte';
   import ChartComponent from '$lib/components/ChartComponent.svelte';
 
@@ -50,8 +50,8 @@
     appState.cpuStatus = 'Exportando CSV filtrado...';
     const cols = appState.columns;
     const headers = cols.join(',');
-    const rows = appState.filteredRows.map(row => 
-      cols.map(col => {
+    const rows = appState.filteredRows.map((row: any) => 
+      cols.map((col: string) => {
         const val = row[col];
         if (val === null || val === undefined) return '';
         const strVal = String(val);
