@@ -8,7 +8,7 @@
 
   // Debounced search text state to avoid filtering lag on every keypress
   let searchQuery = $state("");
-  let debounceTimer: any;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
     const q = searchQuery;
@@ -16,6 +16,7 @@
     debounceTimer = setTimeout(() => {
       appState.filterQuery = q;
     }, 150);
+    return () => clearTimeout(debounceTimer);
   });
 
   $effect(() => {
@@ -35,8 +36,8 @@
     }
 
     appState.cpuStatus = 'Filtrando en Rust Polars...';
-    invoke<string>('filtrar_datos_command', { query: q, tipo: schema })
-      .then((json) => {
+    invoke<any[]>('filtrar_datos_command', { query: q, tipo: schema })
+      .then((json: any) => {
         const parsed = JSON.parse(json);
         appState.filteredRows = parsed;
         appState.cpuStatus = `Filtrado en Rust completado: ${parsed.length.toLocaleString('es-ES')} registros`;
@@ -106,7 +107,7 @@
     }
   }
 
-  // Export filtered dataset using native Save File dialog and Rust writer command
+  // Export filtered dataset using native Save File dialog and Rust Polars CsvWriter
   async function exportFilteredData() {
     if (appState.filteredRows.length === 0) return;
     
@@ -125,28 +126,16 @@
         return;
       }
 
-      appState.cpuStatus = 'Generando CSV...';
-      const cols = appState.columns;
-      const headers = cols.join(',');
-      const rows = appState.filteredRows.map((row: any) => 
-        cols.map((col: string) => {
-          const val = row[col];
-          if (val === null || val === undefined) return '';
-          const strVal = String(val);
-          // Escape standard CSV cells
-          if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
-            return `"${strVal.replace(/"/g, '""')}"`;
-          }
-          return strVal;
-        }).join(',')
-      );
+      appState.cpuStatus = 'Exportando CSV vectorizado en Rust...';
       
-      const csvContent = [headers, ...rows].join('\n');
+      // Delegate complete CSV generation and file write to Polars CsvWriter on the Rust backend
+      await invoke('exportar_csv_filtrado_command', { 
+        path, 
+        query: searchQuery.trim(), 
+        tipo: appState.schemaType 
+      });
       
-      appState.cpuStatus = 'Guardando archivo en disco...';
-      // Write file safely from Rust backend
-      await invoke('guardar_archivo_csv', { path, content: csvContent });
-      appState.cpuStatus = `Archivo guardado en: ${path.split('/').pop()}`;
+      appState.cpuStatus = `Archivo guardado en: ${path.split('/').pop() || path}`;
     } catch (err: any) {
       console.error('Error saving file:', err);
       appState.cpuStatus = `Error al exportar: ${err}`;

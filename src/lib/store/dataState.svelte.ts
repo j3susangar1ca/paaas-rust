@@ -1,5 +1,31 @@
+export interface MovimientoRow {
+  fecha_estandarizada: string | null;
+  codigo: string;
+  descripcion: string;
+  cantidad: number | null;
+  precio_con_iva: number | null;
+  almacen: string;
+  unidad_consumo: string;
+  movimiento_albaran: number | null;
+  importe_con_iva: number | null;
+  [key: string]: any; // Fallback index signature for dynamic table cells
+}
+
+export interface InventarioRow {
+  activo: boolean | null;
+  codigo: string;
+  descripcion: string;
+  existencias: number | null;
+  stock_max: number | null;
+  precio_unitario: number | null;
+  importe: number | null;
+  [key: string]: any; // Fallback index signature for dynamic table cells
+}
+
+export type RowType = MovimientoRow | InventarioRow;
+
 class AppState {
-  rawRows = $state<any[]>([]);
+  rawRows = $state<RowType[]>([]);
   isLoading = $state(false);
   filterQuery = $state("");
   schemaType = $state<'movimientos' | 'inventario'>('movimientos');
@@ -9,7 +35,7 @@ class AppState {
   loadedPath = $state<string>('');
   cpuStatus = $state<string>('Inactivo');
 
-  filteredRows = $state<any[]>([]);
+  filteredRows = $state<RowType[]>([]);
 
   // Helper to extract unique columns from the loaded rows
   get columns() {
