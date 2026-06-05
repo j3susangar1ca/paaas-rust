@@ -11,8 +11,11 @@
     appState.cpuStatus = 'Procesando ETL en Rust Polars...';
     try {
       const start = performance.now();
-      // Invoke Tauri command for fast ETL and exact JSON stringification
-      const json = await invoke<string>('procesar_csv_command', { path: appState.loadedPath.trim() });
+      // Invoke Tauri command for fast ETL and exact JSON stringification, passing file type
+      const json = await invoke<string>('procesar_csv_command', { 
+        path: appState.loadedPath.trim(),
+        tipo: appState.schemaType
+      });
       const end = performance.now();
       
       const elapsed = ((end - start) / 1000).toFixed(3);
@@ -21,21 +24,15 @@
       const parsed = JSON.parse(json);
       appState.rawRows = parsed;
       
-      // Auto-configure axis variables based on loaded columns
+      // Auto-configure axis variables based on loaded columns and schema
       if (parsed.length > 0) {
         const cols = Object.keys(parsed[0]);
-        if (cols.includes('fecha_estandarizada')) {
-          appState.selectedXCol = 'fecha_estandarizada';
-        } else if (cols.length > 0) {
-          appState.selectedXCol = cols[0];
-        }
-
-        if (cols.includes('importe_con_iva')) {
-          appState.selectedYCol = 'importe_con_iva';
-        } else if (cols.includes('cantidad')) {
-          appState.selectedYCol = 'cantidad';
-        } else if (cols.length > 1) {
-          appState.selectedYCol = cols[1];
+        if (appState.schemaType === 'inventario') {
+          appState.selectedXCol = cols.includes('codigo') ? 'codigo' : cols[0];
+          appState.selectedYCol = cols.includes('importe') ? 'importe' : (cols.includes('existencias') ? 'existencias' : cols[1]);
+        } else {
+          appState.selectedXCol = cols.includes('fecha_estandarizada') ? 'fecha_estandarizada' : cols[0];
+          appState.selectedYCol = cols.includes('importe_con_iva') ? 'importe_con_iva' : (cols.includes('cantidad') ? 'cantidad' : cols[1]);
         }
       }
     } catch (err: any) {
@@ -146,9 +143,21 @@
       <div class="flex flex-col gap-6">
         
         <!-- 1. CSV Loader Section -->
-        <div class="flex flex-col gap-2">
-          <label for="csv-path-input" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ruta de Archivo CSV</label>
-          <div class="flex flex-col gap-2">
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-col gap-1">
+            <label for="schema-select" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Esquema / Tipo de Datos</label>
+            <select
+              id="schema-select"
+              bind:value={appState.schemaType}
+              class="select select-sm select-bordered w-full bg-slate-950 border-slate-800 text-xs text-slate-300"
+            >
+              <option value="movimientos">Movimientos (cleanup.rs)</option>
+              <option value="inventario">Inventario (cleanup2.rs)</option>
+            </select>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label for="csv-path-input" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ruta de Archivo CSV</label>
             <input
               id="csv-path-input"
               type="text"
@@ -156,19 +165,20 @@
               bind:value={appState.loadedPath}
               class="input input-sm input-bordered w-full bg-slate-950 border-slate-800 text-xs focus:border-emerald-500 transition-all font-mono"
             />
-            <button
-              onclick={loadCSV}
-              disabled={appState.isLoading || !appState.loadedPath.trim()}
-              class="btn btn-sm btn-primary bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-600 border-none text-slate-950 font-bold transition-all"
-            >
-              {#if appState.isLoading}
-                <span class="loading loading-spinner loading-xs"></span>
-                Procesando...
-              {:else}
-                Cargar CSV
-              {/if}
-            </button>
           </div>
+
+          <button
+            onclick={loadCSV}
+            disabled={appState.isLoading || !appState.loadedPath.trim()}
+            class="btn btn-sm btn-primary bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-600 border-none text-slate-950 font-bold transition-all"
+          >
+            {#if appState.isLoading}
+              <span class="loading loading-spinner loading-xs"></span>
+              Procesando...
+            {:else}
+              Cargar CSV
+            {/if}
+          </button>
         </div>
 
         {#if appState.rawRows.length > 0}
