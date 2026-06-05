@@ -43,7 +43,8 @@ pub fn lttb(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
     }
 
     let mut sampled = Vec::with_capacity(threshold);
-    let bucket_size = (data_len - 2) as f64 / (threshold - 2) as f64;
+    let data_len_m2 = data_len - 2;
+    let threshold_m2 = threshold - 2;
 
     sampled.push(data[0]);
 
@@ -51,8 +52,8 @@ pub fn lttb(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
 
     for i in 0..threshold - 2 {
         // Range of the next bucket to calculate the barycenter (avg)
-        let next_start = ((i + 1) as f64 * bucket_size).floor() as usize + 1;
-        let next_end = (((i + 2) as f64 * bucket_size).floor() as usize + 1).min(data_len);
+        let next_start = ((i + 1) * data_len_m2) / threshold_m2 + 1;
+        let next_end = (((i + 2) * data_len_m2) / threshold_m2 + 1).min(data_len);
 
         let mut avg_x = 0.0;
         let mut avg_y = 0.0;
@@ -67,8 +68,8 @@ pub fn lttb(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
         }
 
         // Range of the current bucket
-        let curr_start = (i as f64 * bucket_size).floor() as usize + 1;
-        let curr_end = (((i + 1) as f64 * bucket_size).floor() as usize + 1).min(data_len);
+        let curr_start = (i * data_len_m2) / threshold_m2 + 1;
+        let curr_end = (((i + 1) * data_len_m2) / threshold_m2 + 1).min(data_len);
 
         let mut max_area = -1.0;
         let mut next_a = curr_start;
@@ -101,20 +102,22 @@ pub fn lttb(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
 fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
     if tipo == "inventario" {
         let df = procesar_etl_inventario_elite(&path).map_err(|e| e.to_string())?;
+        let json = exportar_inventario_elite_definitivo(&df).map_err(|e| e.to_string())?;
         
-        // Save to global cache
+        // Save to global cache without cloning
         let mut cache = get_dataframe_cache().write().unwrap_or_else(|e| e.into_inner());
-        *cache = Some(df.clone());
+        *cache = Some(df);
 
-        exportar_inventario_elite_definitivo(&df).map_err(|e| e.to_string())
+        Ok(json)
     } else {
         let df = procesar_etl_dsa(&path).map_err(|e| e.to_string())?;
+        let json = exportar_json_estricto(&df).map_err(|e| e.to_string())?;
         
-        // Save to global cache
+        // Save to global cache without cloning
         let mut cache = get_dataframe_cache().write().unwrap_or_else(|e| e.into_inner());
-        *cache = Some(df.clone());
+        *cache = Some(df);
 
-        exportar_json_estricto(&df).map_err(|e| e.to_string())
+        Ok(json)
     }
 }
 
@@ -184,12 +187,14 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
 
     for (x_opt, y_opt) in x_iter.zip(y_iter) {
         if let (Some(x), Some(y)) = (x_opt, y_opt) {
-            points.push((x, y));
+            if !x.is_nan() && !y.is_nan() {
+                points.push((x, y));
+            }
         }
     }
 
-    // Sort by x coordinate chronologically for LTTB to work correctly
-    points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Sort by x coordinate chronologically for LTTB to work correctly using total_cmp for strict Ordering
+    points.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let threshold = n_buckets.unwrap_or(2000);
     let decimated = lttb(&points, threshold);
@@ -217,13 +222,15 @@ fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> 
     let cols = df.get_column_names();
     let mut predicate = lit(false);
     for col_name in cols {
-        let cond = col(col_name)
-            .cast(DataType::String)
-            .str()
-            .to_uppercase()
-            .str()
-            .contains(lit(q_upper.clone()), true);
-        predicate = predicate.or(cond);
+        let dtype = df.column(col_name).map(|c| c.dtype().clone()).unwrap_or(DataType::Null);
+        if dtype == DataType::String {
+            let cond = col(col_name)
+                .str()
+                .to_uppercase()
+                .str()
+                .contains_literal(lit(q_upper.clone()));
+            predicate = predicate.or(cond);
+        }
     }
 
     let filtered_df = df.clone().lazy().filter(predicate).collect().map_err(|e| e.to_string())?;
