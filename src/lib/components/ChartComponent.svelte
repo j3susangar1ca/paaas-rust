@@ -137,6 +137,14 @@
   </div>
 
   <div class="flex-1 w-full relative min-h-[300px]">
+    {#if chartLoading}
+      <div class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm flex flex-col items-center justify-center rounded-lg z-10 transition-all duration-300">
+        <span class="loading loading-ring loading-lg text-emerald-500 mb-3 animate-pulse"></span>
+        <span class="text-xs text-slate-300 font-semibold tracking-wider uppercase">Generando gráfico WebGL...</span>
+        <span class="text-[10px] text-slate-500 mt-1 font-mono">{appState.cpuStatus}</span>
+      </div>
+    {/if}
+
     {#if chartError}
       <div class="absolute inset-0 flex flex-col items-center justify-center text-rose-400 bg-slate-950/40 p-4 text-center rounded-lg border border-rose-950/30">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 mb-2 opacity-80">
