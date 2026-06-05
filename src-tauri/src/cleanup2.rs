@@ -11,7 +11,7 @@ pub fn procesar_etl_inventario_elite(path_csv: &str) -> Result<DataFrame, Box<dy
             col("Act").str().to_uppercase().eq(lit("SÍ")).alias("activo"),
             col("Código").cast(DataType::String).alias("codigo"),
             col("Nombre")
-                .str().strip_chars(lit(Option::<String>::None))
+                .str().strip_chars(lit(NULL))
                 .str().to_uppercase()
                 .alias("descripcion"),
             col("Existencias").cast(DataType::Int64).alias("existencias"),
@@ -52,7 +52,7 @@ fn write_json_escaped(buf: &mut Vec<u8>, s: &str) {
     let mut last_idx = 0;
 
     for (i, &b) in bytes.iter().enumerate() {
-        let escape_seq = match b {
+        let escape_seq: &[u8] = match b {
             b'"' => b"\\\"",
             b'\\' => b"\\\\",
             b'\x08' => b"\\b",

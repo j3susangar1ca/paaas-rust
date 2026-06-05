@@ -2,6 +2,7 @@ class AppState {
   rawRows = $state<any[]>([]);
   isLoading = $state(false);
   filterQuery = $state("");
+  schemaType = $state<'movimientos' | 'inventario'>('movimientos');
   activeTab = $state<'tabla' | 'grafico'>('tabla');
   selectedXCol = $state<string>('fecha_estandarizada');
   selectedYCol = $state<string>('importe_con_iva');

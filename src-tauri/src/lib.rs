@@ -1,7 +1,9 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod cleanup;
+mod cleanup2;
 
 use cleanup::{procesar_etl_dsa, exportar_json_estricto};
+use cleanup2::{procesar_etl_inventario_elite, exportar_inventario_elite_definitivo};
 use polars::prelude::*;
 use std::sync::{Mutex, OnceLock};
 
@@ -126,14 +128,24 @@ pub fn lttb(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
 }
 
 #[tauri::command]
-fn procesar_csv_command(path: String) -> Result<String, String> {
-    let df = procesar_etl_dsa(&path).map_err(|e| e.to_string())?;
-    
-    // Save to global cache
-    let mut cache = get_dataframe_cache().lock().unwrap();
-    *cache = Some(df.clone());
+fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
+    if tipo == "inventario" {
+        let df = procesar_etl_inventario_elite(&path).map_err(|e| e.to_string())?;
+        
+        // Save to global cache
+        let mut cache = get_dataframe_cache().lock().unwrap();
+        *cache = Some(df.clone());
 
-    exportar_json_estricto(&df).map_err(|e| e.to_string())
+        exportar_inventario_elite_definitivo(&df).map_err(|e| e.to_string())
+    } else {
+        let df = procesar_etl_dsa(&path).map_err(|e| e.to_string())?;
+        
+        // Save to global cache
+        let mut cache = get_dataframe_cache().lock().unwrap();
+        *cache = Some(df.clone());
+
+        exportar_json_estricto(&df).map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
