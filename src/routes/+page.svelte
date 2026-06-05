@@ -18,6 +18,35 @@
     }, 150);
   });
 
+  $effect(() => {
+    const q = appState.filterQuery;
+    const rawCount = appState.rawRows.length;
+    const schema = appState.schemaType;
+    const path = appState.loadedPath;
+
+    if (!path || rawCount === 0) {
+      appState.filteredRows = [];
+      return;
+    }
+
+    if (!q) {
+      appState.filteredRows = appState.rawRows;
+      return;
+    }
+
+    appState.cpuStatus = 'Filtrando en Rust Polars...';
+    invoke<string>('filtrar_datos_command', { query: q, tipo: schema })
+      .then((json) => {
+        const parsed = JSON.parse(json);
+        appState.filteredRows = parsed;
+        appState.cpuStatus = `Filtrado en Rust completado: ${parsed.length.toLocaleString('es-ES')} registros`;
+      })
+      .catch((err) => {
+        console.error(err);
+        appState.cpuStatus = `Error al filtrar: ${err}`;
+      });
+  });
+
   async function loadCSV() {
     if (!appState.loadedPath.trim()) return;
     appState.isLoading = true;
