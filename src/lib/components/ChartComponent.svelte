@@ -121,9 +121,8 @@
     const tab = appState.activeTab;
     const count = appState.rawRows.length;
 
-    if (tab === 'grafico' && count > 0) {
-      const timer = setTimeout(renderChart, 80);
-      return () => clearTimeout(timer);
+    if (tab === 'grafico' && count > 0 && chartEl) {
+      renderChart();
     }
   });
 </script>
@@ -142,6 +141,9 @@
   </div>
 
   <div class="flex-1 w-full relative min-h-[300px]">
+    <!-- Chart element stays mounted so it is always bound and ready to draw -->
+    <div bind:this={chartEl} class="w-full h-full"></div>
+
     {#if chartLoading}
       <div class="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center rounded-lg z-10 transition-all duration-300">
         <span class="loading loading-ring loading-lg text-blue-500 mb-3 animate-pulse"></span>
@@ -151,14 +153,12 @@
     {/if}
 
     {#if chartError}
-      <div class="absolute inset-0 flex flex-col items-center justify-center text-red-500 bg-zinc-50/50 p-4 text-center rounded-lg border border-zinc-200 shadow-sm">
+      <div class="absolute inset-0 flex flex-col items-center justify-center text-red-500 bg-white/95 backdrop-blur-sm p-4 text-center rounded-lg border border-zinc-200 shadow-sm z-10">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 mb-2 opacity-80">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" />
         </svg>
         <p class="text-sm font-semibold">{chartError}</p>
       </div>
-    {:else}
-      <div bind:this={chartEl} class="w-full h-full"></div>
     {/if}
   </div>
 </div>
