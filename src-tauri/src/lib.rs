@@ -235,8 +235,44 @@ fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> 
     }
 }
 
+fn validate_save_path(path_str: &str) -> Result<(), String> {
+    let path = std::path::Path::new(path_str);
+    
+    // 1. Check extension is .csv (case insensitive)
+    if let Some(ext) = path.extension() {
+        if ext.to_string_lossy().to_lowercase() != "csv" {
+            return Err("La extensión del archivo debe ser .csv".to_string());
+        }
+    } else {
+        return Err("El archivo no tiene una extensión válida".to_string());
+    }
+    
+    // 2. Prevent path traversal by checking for directory traversal components (..)
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err("Componente de ruta inválido (path traversal detectado)".to_string());
+        }
+    }
+    
+    // 3. Prevent writing to critical system directories if absolute path
+    if path.is_absolute() {
+        let str_path = path.to_string_lossy();
+        let bad_prefixes = [
+            "/etc/", "/var/", "/bin/", "/usr/", "/lib/", "/boot/", "/sys/", "/proc/", "/dev/"
+        ];
+        for prefix in bad_prefixes {
+            if str_path.starts_with(prefix) {
+                return Err(format!("No está permitido escribir en directorios del sistema como '{}'", prefix));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 fn guardar_archivo_csv(path: String, content: String) -> Result<(), String> {
+    validate_save_path(&path)?;
     std::fs::write(&path, content).map_err(|e| format!("Error al guardar el archivo: {}", e))
 }
 
