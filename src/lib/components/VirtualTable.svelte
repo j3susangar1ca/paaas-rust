@@ -12,6 +12,13 @@
     paddingStart: 40, // Offsets the virtual items by the height of the sticky header
   });
 
+  $effect(() => {
+    $virtualizer.setOptions({
+      count: appState.filteredRows.length,
+      getScrollElement: () => parentEl,
+    });
+  });
+
   let virtualItems = $derived($virtualizer.getVirtualItems());
   let totalSize = $derived($virtualizer.getTotalSize());
 </script>
