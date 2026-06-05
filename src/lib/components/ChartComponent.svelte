@@ -114,9 +114,14 @@
     };
   });
 
-  // Reactive effect when active tab or column selections change
+  // Reactive effect when active tab, data, or column selections change
   $effect(() => {
-    if (appState.activeTab === 'grafico' && appState.rawRows.length > 0) {
+    const x = appState.selectedXCol;
+    const y = appState.selectedYCol;
+    const tab = appState.activeTab;
+    const count = appState.rawRows.length;
+
+    if (tab === 'grafico' && count > 0) {
       const timer = setTimeout(renderChart, 80);
       return () => clearTimeout(timer);
     }
