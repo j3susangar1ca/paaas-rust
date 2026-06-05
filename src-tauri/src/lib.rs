@@ -1,16 +1,22 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod cleanup;
-mod cleanup2;
+mod etl_movimientos;
+mod etl_inventario;
+mod json_utils;
 
-use cleanup::{procesar_etl_dsa, exportar_json_estricto};
-use cleanup2::{procesar_etl_inventario_elite, exportar_inventario_elite_definitivo};
+use etl_movimientos::{procesar_etl_dsa, exportar_json_estricto};
+use etl_inventario::{procesar_etl_inventario_elite, exportar_inventario_elite_definitivo};
 use polars::prelude::*;
 use std::sync::{RwLock, OnceLock};
 
-// Global cache for processed DataFrame to avoid re-reading the CSV for chart queries.
-static DATAFRAME_CACHE: OnceLock<RwLock<Option<DataFrame>>> = OnceLock::new();
+pub struct CachedData {
+    pub df: DataFrame,
+    pub tipo: String,
+}
 
-fn get_dataframe_cache() -> &'static RwLock<Option<DataFrame>> {
+// Global cache for processed DataFrame to avoid re-reading the CSV for chart queries.
+static DATAFRAME_CACHE: OnceLock<RwLock<Option<CachedData>>> = OnceLock::new();
+
+fn get_dataframe_cache() -> &'static RwLock<Option<CachedData>> {
     DATAFRAME_CACHE.get_or_init(|| RwLock::new(None))
 }
 
@@ -283,6 +289,55 @@ fn guardar_archivo_csv(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("Error al guardar el archivo: {}", e))
 }
 
+#[tauri::command]
+fn exportar_csv_filtrado_command(path: String, query: String, tipo: String) -> Result<(), String> {
+    validate_save_path(&path)?;
+    
+    let cache = get_dataframe_cache().read().unwrap_or_else(|e| e.into_inner());
+    let cached = match &*cache {
+        Some(c) => c,
+        None => return Err("No hay datos cargados en memoria. Cargue un archivo CSV primero.".to_string()),
+    };
+
+    // Validate schema type
+    if cached.tipo != tipo {
+        return Err(format!(
+            "Mapeo de datos inválido: Se solicitó exportar para '{}', pero los datos en caché son de '{}'.",
+            tipo, cached.tipo
+        ));
+    }
+
+    let df = &cached.df;
+    let q = query.trim();
+    let mut filtered_df = if q.is_empty() {
+        df.clone()
+    } else {
+        let q_upper = q.to_uppercase();
+        let cols = df.get_column_names();
+        let mut predicate = lit(false);
+        for col_name in cols {
+            let dtype = df.column(col_name).map(|c| c.dtype().clone()).unwrap_or(DataType::Null);
+            if dtype == DataType::String {
+                let cond = col(col_name)
+                    .str()
+                    .to_uppercase()
+                    .str()
+                    .contains_literal(lit(q_upper.clone()));
+                predicate = predicate.or(cond);
+            }
+        }
+        df.clone().lazy().filter(predicate).collect().map_err(|e| e.to_string())?
+    };
+
+    // Write filtered DataFrame to CSV using Polars CsvWriter
+    let file = std::fs::File::create(&path).map_err(|e| format!("No se pudo crear el archivo: {}", e))?;
+    CsvWriter::new(file)
+        .finish(&mut filtered_df)
+        .map_err(|e| format!("Error al escribir CSV: {}", e))?;
+    
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -292,7 +347,8 @@ pub fn run() {
             procesar_csv_command,
             obtener_datos_decimados,
             guardar_archivo_csv,
-            filtrar_datos_command
+            filtrar_datos_command,
+            exportar_csv_filtrado_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
