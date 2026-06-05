@@ -17,7 +17,7 @@
 
 <div class="h-full w-full flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
   <!-- Table Header -->
-  <div class="overflow-hidden border-b border-slate-800 bg-slate-950 text-slate-200">
+  <div class="overflow-hidden border-b border-slate-800 bg-slate-950 text-slate-200" style="scrollbar-gutter: stable;">
     <div
       class="grid font-bold text-xs uppercase tracking-wider"
       style="grid-template-columns: repeat({appState.columns.length}, minmax(180px, 1fr));"
@@ -31,7 +31,7 @@
   </div>
 
   <!-- Table Body (Scroll Container) -->
-  <div class="flex-1 overflow-auto bg-slate-900/60" bind:this={parentEl}>
+  <div class="flex-1 overflow-auto bg-slate-900/60" bind:this={parentEl} style="scrollbar-gutter: stable;">
     {#if appState.filteredRows.length === 0}
       <div class="flex flex-col items-center justify-center h-full text-slate-500 py-12">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mb-3 opacity-60 text-slate-400 animate-pulse">
@@ -48,7 +48,7 @@
             style="height: {virtualRow.size}px; transform: translateY({virtualRow.start}px); grid-template-columns: repeat({appState.columns.length}, minmax(180px, 1fr));"
           >
             {#each appState.columns as col}
-              <div class="p-3 border-r border-slate-800/40 last:border-r-0 truncate max-w-full" title={row[col]}>
+              <div class="p-3 border-r border-slate-800/40 last:border-r-0 truncate max-w-full select-text" title={row[col]}>
                 {#if row[col] === null || row[col] === undefined}
                   <span class="text-slate-600 italic">null</span>
                 {:else if col === 'cantidad' || col === 'precio_con_iva' || col === 'importe_con_iva'}

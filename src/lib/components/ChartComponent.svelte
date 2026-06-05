@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { appState } from '$lib/store/dataState';
-  import Plotly from 'plotly.js-dist-min';
 
   let chartEl = $state<HTMLDivElement | null>(null);
   let chartLoading = $state(false);
   let chartError = $state('');
+
+  // Lazy-loaded reference to the Plotly library
+  let Plotly: any = null;
+  let resizeObserver: ResizeObserver | null = null;
 
   async function renderChart() {
     if (!chartEl || appState.rawRows.length === 0) return;
@@ -13,6 +17,13 @@
     chartError = '';
     
     try {
+      // Lazy load Plotly on demand to keep the initial application bundle lightweight
+      if (!Plotly) {
+        appState.cpuStatus = 'Cargando módulo de gráficos...';
+        const PlotlyModule = await import('plotly.js-dist-min');
+        Plotly = PlotlyModule.default;
+      }
+
       appState.cpuStatus = 'Procesando decimación LTTB...';
       
       // Invoke Rust downsampling command with Tauri v2 parameters
@@ -83,6 +94,25 @@
       chartLoading = false;
     }
   }
+
+  // Handle dynamic resizing through ResizeObserver to support fluid window adjustments
+  onMount(() => {
+    resizeObserver = new ResizeObserver(() => {
+      if (chartEl && Plotly) {
+        Plotly.Plots.resize(chartEl);
+      }
+    });
+
+    if (chartEl) {
+      resizeObserver.observe(chartEl);
+    }
+
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  });
 
   // Reactive effect when active tab or column selections change
   $effect(() => {
