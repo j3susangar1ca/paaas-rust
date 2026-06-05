@@ -103,7 +103,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
         let df = procesar_etl_inventario_elite(&path).map_err(|e| e.to_string())?;
         
         // Save to global cache
-        let mut cache = get_dataframe_cache().write().unwrap();
+        let mut cache = get_dataframe_cache().write().unwrap_or_else(|e| e.into_inner());
         *cache = Some(df.clone());
 
         exportar_inventario_elite_definitivo(&df).map_err(|e| e.to_string())
@@ -111,7 +111,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
         let df = procesar_etl_dsa(&path).map_err(|e| e.to_string())?;
         
         // Save to global cache
-        let mut cache = get_dataframe_cache().write().unwrap();
+        let mut cache = get_dataframe_cache().write().unwrap_or_else(|e| e.into_inner());
         *cache = Some(df.clone());
 
         exportar_json_estricto(&df).map_err(|e| e.to_string())
@@ -120,7 +120,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
 
 #[tauri::command]
 fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize>) -> Result<Vec<(f64, f64)>, String> {
-    let cache = get_dataframe_cache().read().unwrap();
+    let cache = get_dataframe_cache().read().unwrap_or_else(|e| e.into_inner());
     let df = match &*cache {
         Some(df) => df,
         None => return Err("No hay datos cargados en memoria. Cargue un archivo CSV primero.".to_string()),
@@ -198,7 +198,7 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
 
 #[tauri::command]
 fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> {
-    let cache = get_dataframe_cache().read().unwrap();
+    let cache = get_dataframe_cache().read().unwrap_or_else(|e| e.into_inner());
     let df = match &*cache {
         Some(df) => df,
         None => return Ok("[]".to_string()),

@@ -147,9 +147,6 @@ pub fn exportar_inventario_elite_definitivo(df: &DataFrame) -> Result<String, Bo
     }
     buffer.push(b']');
 
-    // Retorna la memoria no utilizada al OS.
-    buffer.shrink_to_fit();
-
-    let json_payload = unsafe { String::from_utf8_unchecked(buffer) };
+    let json_payload = String::from_utf8(buffer).map_err(|e| Box::new(e) as Box<dyn Error>)?;
     Ok(json_payload)
 }

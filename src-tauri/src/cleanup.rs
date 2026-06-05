@@ -183,7 +183,5 @@ pub fn exportar_json_estricto(df: &DataFrame) -> Result<String, Box<dyn Error>> 
     }
     buffer.push(b']');
 
-    buffer.shrink_to_fit();
-
-    unsafe { Ok(String::from_utf8_unchecked(buffer)) }
+    String::from_utf8(buffer).map_err(|e| Box::new(e) as Box<dyn Error>)
 }
