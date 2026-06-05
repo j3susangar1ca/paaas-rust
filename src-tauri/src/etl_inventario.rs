@@ -24,12 +24,61 @@ pub fn procesar_etl_inventario_elite(path_csv: &str) -> Result<DataFrame, Box<dy
     Ok(df_optimizado)
 }
 
+/// 🔬 FASE 3: Serialización Híbrida (Zero-Copy Numérico, Allocación Segura Pasada Única)
+pub fn exportar_inventario_elite_definitivo(df: &DataFrame) -> Result<String, Box<dyn Error>> {
+    let n = df.height();
+    if n == 0 { return Ok("[]".to_string()); }
 
+    let c_activo = df.column("activo")?.bool()?;
+    let c_cod = df.column("codigo")?.str()?;
+    let c_desc = df.column("descripcion")?.str()?;
+    let c_ext = df.column("existencias")?.i64()?;
+    let c_stk = df.column("stock_max")?.i64()?;
+    let c_prec = df.column("precio_unitario")?.f64()?;
+    let c_imp = df.column("importe")?.f64()?;
+
+    let mut it_activo = c_activo.into_iter();
+    let mut it_cod = c_cod.into_iter();
+    let mut it_desc = c_desc.into_iter();
+    let mut it_ext = c_ext.into_iter();
+    let mut it_stk = c_stk.into_iter();
+    let mut it_prec = c_prec.into_iter();
+    let mut it_imp = c_imp.into_iter();
+
+    // Buffers independientes reusables para prevenir aliasing y zero-allocation.
+    let mut itoa_ext = itoa::Buffer::new();
+    let mut itoa_stk = itoa::Buffer::new();
+    let mut ryu_prec = ryu::Buffer::new();
+    let mut ryu_imp  = ryu::Buffer::new();
+
+    // Pre-alocación generosa (estimación de ~200 bytes por fila) para evitar re-alocaciones en el heap
+    let mut buffer: Vec<u8> = Vec::with_capacity(n * 200);
+    buffer.push(b'[');
+
+    for i in 0..n {
+        if i > 0 { buffer.push(b','); }
+        buffer.push(b'{');
+
+        let v_activo = it_activo.next().flatten();
+        let v_cod = it_cod.next().flatten();
+        let v_desc = it_desc.next().flatten();
+        let v_ext = it_ext.next().flatten();
+        let v_stk = it_stk.next().flatten();
+        let v_prec = it_prec.next().flatten();
+        let v_imp = it_imp.next().flatten();
+
+        // activo
+        buffer.extend_from_slice(b"\"activo\":");
+        match v_activo {
+            Some(true) => buffer.extend_from_slice(b"true"),
+            Some(false) => buffer.extend_from_slice(b"false"),
+            None => buffer.extend_from_slice(b"null"),
+        }
 
         // codigo (escapado veloz vía bloque)
         buffer.extend_from_slice(b",\"codigo\":");
         if let Some(s) = v_cod { crate::json_utils::write_json_escaped(&mut buffer, s); } else { buffer.extend_from_slice(b"null"); }
- 
+
         // descripcion (escapado veloz vía bloque)
         buffer.extend_from_slice(b",\"descripcion\":");
         if let Some(s) = v_desc { crate::json_utils::write_json_escaped(&mut buffer, s); } else { buffer.extend_from_slice(b"null"); }
