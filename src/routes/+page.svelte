@@ -1,9 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { open, save } from '@tauri-apps/plugin-dialog';
   import { appState } from '$lib/store/dataState.svelte';
   import VirtualTable from '$lib/components/VirtualTable.svelte';
   import ChartComponent from '$lib/components/ChartComponent.svelte';
+
+  // Debounced search text state to avoid filtering lag on every keypress
+  let searchQuery = $state("");
+  let debounceTimer: any;
+
+  $effect(() => {
+    const q = searchQuery;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      appState.filterQuery = q;
+    }, 150);
+  });
 
   async function loadCSV() {
     if (!appState.loadedPath.trim()) return;
@@ -44,36 +57,72 @@
     }
   }
 
-  function exportFilteredData() {
+  // Launch Tauri native File Open dialog
+  async function selectCSVFile() {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{
+          name: 'CSV',
+          extensions: ['csv']
+        }]
+      });
+      if (selected) {
+        appState.loadedPath = typeof selected === 'string' ? selected : selected[0];
+        // Automatically load file immediately upon selection
+        await loadCSV();
+      }
+    } catch (err) {
+      console.error('Error selecting file:', err);
+    }
+  }
+
+  // Export filtered dataset using native Save File dialog and Rust writer command
+  async function exportFilteredData() {
     if (appState.filteredRows.length === 0) return;
     
-    appState.cpuStatus = 'Exportando CSV filtrado...';
-    const cols = appState.columns;
-    const headers = cols.join(',');
-    const rows = appState.filteredRows.map((row: any) => 
-      cols.map((col: string) => {
-        const val = row[col];
-        if (val === null || val === undefined) return '';
-        const strVal = String(val);
-        // Escape standard CSV cells
-        if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
-          return `"${strVal.replace(/"/g, '""')}"`;
-        }
-        return strVal;
-      }).join(',')
-    );
-    
-    const csvContent = [headers, ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "data_procesada.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    appState.cpuStatus = `CSV exportado (${appState.filteredRows.length} registros)`;
+    appState.cpuStatus = 'Preparando exportación...';
+    try {
+      const path = await save({
+        filters: [{
+          name: 'CSV',
+          extensions: ['csv']
+        }],
+        defaultPath: appState.schemaType === 'inventario' ? 'inventario_filtrado.csv' : 'movimientos_filtrados.csv'
+      });
+      
+      if (!path) {
+        appState.cpuStatus = 'Exportación cancelada';
+        return;
+      }
+
+      appState.cpuStatus = 'Generando CSV...';
+      const cols = appState.columns;
+      const headers = cols.join(',');
+      const rows = appState.filteredRows.map((row: any) => 
+        cols.map((col: string) => {
+          const val = row[col];
+          if (val === null || val === undefined) return '';
+          const strVal = String(val);
+          // Escape standard CSV cells
+          if (strVal.includes(',') || strVal.includes('"') || strVal.includes('\n')) {
+            return `"${strVal.replace(/"/g, '""')}"`;
+          }
+          return strVal;
+        }).join(',')
+      );
+      
+      const csvContent = [headers, ...rows].join('\n');
+      
+      appState.cpuStatus = 'Guardando archivo en disco...';
+      // Write file safely from Rust backend
+      await invoke('guardar_archivo_csv', { path, content: csvContent });
+      appState.cpuStatus = `Archivo guardado en: ${path.split('/').pop()}`;
+    } catch (err: any) {
+      console.error('Error saving file:', err);
+      appState.cpuStatus = `Error al exportar: ${err}`;
+      alert(`Error al guardar el archivo:\n${err}`);
+    }
   }
 
   // Handle Ctrl+O and Ctrl+S hotkeys for native desktop feel
@@ -81,8 +130,7 @@
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
-        const input = document.getElementById('csv-path-input') as HTMLInputElement | null;
-        if (input) input.focus();
+        selectCSVFile();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         exportFilteredData();
@@ -157,26 +205,23 @@
           </div>
 
           <div class="flex flex-col gap-1.5">
-            <label for="csv-path-input" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ruta de Archivo CSV</label>
-            <input
-              id="csv-path-input"
-              type="text"
-              placeholder="/ruta/al/archivo.csv"
-              bind:value={appState.loadedPath}
-              class="input input-sm input-bordered w-full bg-slate-950 border-slate-800 text-xs focus:border-emerald-500 transition-all font-mono"
-            />
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Archivo Seleccionado</span>
+            <div class="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800 text-xs font-mono truncate max-w-full" title={appState.loadedPath || "Ninguno seleccionado"}>
+              <span class="truncate text-slate-400 max-w-[170px]">{appState.loadedPath ? appState.loadedPath.split('/').pop() : "Ninguno seleccionado"}</span>
+              <span class="text-[9px] text-slate-600 bg-slate-900 border border-slate-850 px-1 rounded">CSV</span>
+            </div>
           </div>
 
           <button
-            onclick={loadCSV}
-            disabled={appState.isLoading || !appState.loadedPath.trim()}
+            onclick={selectCSVFile}
+            disabled={appState.isLoading}
             class="btn btn-sm btn-primary bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-600 border-none text-slate-950 font-bold transition-all"
           >
             {#if appState.isLoading}
               <span class="loading loading-spinner loading-xs"></span>
               Procesando...
             {:else}
-              Cargar CSV
+              Seleccionar CSV
             {/if}
           </button>
         </div>
@@ -212,10 +257,10 @@
                 id="search-input"
                 type="text"
                 placeholder="Buscar término..."
-                bind:value={appState.filterQuery}
+                bind:value={searchQuery}
                 class="input input-sm input-bordered w-full bg-slate-950 border-slate-800 text-xs focus:border-emerald-500"
               />
-              <span class="text-[10px] text-slate-500">Búsqueda rápida en todas las columnas</span>
+              <span class="text-[10px] text-slate-500">Búsqueda reactiva (150ms debounce)</span>
             </div>
           {:else if appState.activeTab === 'grafico'}
             <!-- Axis Columns Selectors for WebGL Plotly Chart -->
@@ -241,7 +286,6 @@
                   class="select select-sm select-bordered w-full bg-slate-950 border-slate-800 text-xs text-slate-300"
                 >
                   {#each appState.columns as col}
-                    <!-- Prioritize numerical values for Y -->
                     <option value={col}>{col}</option>
                   {/each}
                 </select>
@@ -269,7 +313,7 @@
       <div class="p-3 bg-slate-950/60 border border-slate-900 rounded-lg flex flex-col gap-1.5 text-[10px] text-slate-500">
         <span class="font-bold text-slate-400 uppercase tracking-wider mb-0.5">Atajos de Teclado</span>
         <div class="flex items-center justify-between">
-          <span>Enfocar ruta CSV</span>
+          <span>Abrir Selector CSV</span>
           <kbd class="kbd kbd-xs bg-slate-900 border-slate-800 text-slate-400 font-mono">Ctrl+O</kbd>
         </div>
         <div class="flex items-center justify-between">
@@ -301,18 +345,24 @@
               </svg>
             </div>
             
-            <h2 class="text-xl font-bold text-slate-200 tracking-tight mb-2 relative z-10">Carga un Archivo CSV de Datos</h2>
+            <h2 class="text-xl font-bold text-slate-200 tracking-tight mb-2 relative z-10">DataEngine Desktop ETL</h2>
             <p class="text-sm text-slate-500 max-w-md mb-6 leading-relaxed relative z-10">
-              Copia la ruta absoluta de tu archivo de movimientos CSV y presiona <strong class="text-emerald-500 font-semibold">Cargar CSV</strong>. Nuestro motor Rust Polars se encargará del procesamiento ETL vectorizado.
+              Selecciona tu archivo de movimientos o inventario CSV para iniciar el procesamiento vectorizado en Rust.
             </p>
+
+            <button
+              onclick={selectCSVFile}
+              class="btn btn-emerald-500 bg-emerald-500 hover:bg-emerald-600 border-none text-slate-950 font-bold px-6 py-2 rounded-xl transition-all shadow-lg shadow-emerald-500/15 mb-6 z-10"
+            >
+              Seleccionar CSV
+            </button>
 
             <div class="w-full max-w-lg bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center gap-3 relative z-10 text-left">
               <div class="w-8 h-8 rounded-lg bg-slate-950 flex items-center justify-center border border-slate-850">
                 <span class="text-xs text-slate-400">💡</span>
               </div>
               <p class="text-xs text-slate-400 font-medium">
-                Pega la ruta del CSV del proyecto para probar el pipeline, por ejemplo:<br/>
-                <code class="text-emerald-400 select-all font-mono font-bold block mt-1">/home/jesuslangarica/paaas-rust/movimientos.csv</code>
+                Tip: Utiliza <kbd class="kbd kbd-xs bg-slate-950 border-slate-850 text-slate-400 font-mono text-[9px] px-1.5">Ctrl+O</kbd> desde cualquier parte para abrir el selector de archivos nativo.
               </p>
             </div>
           </div>
