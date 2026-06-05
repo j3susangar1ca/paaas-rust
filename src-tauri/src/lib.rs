@@ -174,11 +174,17 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
     Ok(decimated)
 }
 
+#[tauri::command]
+fn guardar_archivo_csv(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("Error al guardar el archivo: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![procesar_csv_command, obtener_datos_decimados])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![procesar_csv_command, obtener_datos_decimados, guardar_archivo_csv])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
