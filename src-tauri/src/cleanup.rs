@@ -58,12 +58,59 @@ pub fn procesar_etl_dsa(path_csv: &str) -> Result<DataFrame, Box<dyn Error>> {
     Ok(df_optimizado)
 }
 
+fn json_escaped_len(s: &str) -> usize {
+    let mut len = s.len() + 2; // Comillas iniciales y finales
+    for b in s.bytes() {
+        match b {
+            b'"' | b'\\' | b'\x08' | b'\x0C' | b'\n' | b'\r' | b'\t' => len += 1,
+            0x00..=0x1F => len += 5,
+            _ => {}
+        }
+    }
+    len
+}
+
+#[inline(always)]
+fn format_hex_byte(byte: u8) -> [u8; 2] {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    [HEX[(byte >> 4) as usize], HEX[(byte & 0x0F) as usize]]
+}
+
+fn write_json_escaped(buf: &mut Vec<u8>, s: &str) {
+    buf.push(b'"');
+    let bytes = s.as_bytes();
+    let mut last_idx = 0;
+
+    for (i, &b) in bytes.iter().enumerate() {
+        let escape_seq: &[u8] = match b {
+            b'"' => b"\\\"",
+            b'\\' => b"\\\\",
+            b'\x08' => b"\\b",
+            b'\x0C' => b"\\f",
+            b'\n' => b"\\n",
+            b'\r' => b"\\r",
+            b'\t' => b"\\t",
+            0x00..=0x1F => b"\\u00",
+            _ => continue,
+        };
+
+        buf.extend_from_slice(&bytes[last_idx..i]);
+        buf.extend_from_slice(escape_seq);
+
+        if b <= 0x1F && b != b'\x08' && b != b'\x0C' && b != b'\n' && b != b'\r' && b != b'\t' {
+            buf.extend_from_slice(&format_hex_byte(b));
+        }
+        
+        last_idx = i + 1;
+    }
+    buf.extend_from_slice(&bytes[last_idx..]);
+    buf.push(b'"');
+}
+
 fn inyectar_cadena(buffer: &mut Vec<u8>, clave: &[u8], valor: Option<&str>) {
     buffer.extend_from_slice(clave);
     if let Some(s) = valor {
-        buffer.push(b'"');
-        buffer.extend_from_slice(s.as_bytes());
-        buffer.push(b'"');
+        write_json_escaped(buffer, s);
     } else {
         buffer.extend_from_slice(b"null");
     }
@@ -89,7 +136,7 @@ pub fn exportar_json_estricto(df: &DataFrame) -> Result<String, Box<dyn Error>> 
     let mut ryu_buf = ryu::Buffer::new();
     let mut itoa_buf = itoa::Buffer::new();
 
-    let len_str = |opt_s: Option<&str>| -> usize { opt_s.map_or(4, |s| s.len() + 2) }; // 4 es "null"
+    let len_str = |opt_s: Option<&str>| -> usize { opt_s.map_or(4, |s| json_escaped_len(s)) }; // 4 es "null"
     
     let mut exact_capacity: usize = 1; // '['
     for i in 0..n {
@@ -101,6 +148,7 @@ pub fn exportar_json_estricto(df: &DataFrame) -> Result<String, Box<dyn Error>> 
         exact_capacity += 15 + len_str(c_desc.get(i));  // ",\"descripcion\":"
         exact_capacity += 11 + len_str(c_alm.get(i));   // ",\"almacen\":"
         exact_capacity += 18 + len_str(c_uc.get(i));    // ",\"unidad_consumo\":"
+
 
         exact_capacity += 12 + c_cant.get(i).map_or(4, |v| ryu_buf.format(v).len());   // ",\"cantidad\":"
         exact_capacity += 18 + c_precio.get(i).map_or(4, |v| ryu_buf.format(v).len()); // ",\"precio_con_iva\":"
