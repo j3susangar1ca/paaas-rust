@@ -112,7 +112,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
         
         // Save to global cache without cloning
         let mut cache = get_dataframe_cache().write().unwrap_or_else(|e| e.into_inner());
-        *cache = Some(df);
+        *cache = Some(CachedData { df, tipo: tipo.clone() });
 
         Ok(json)
     } else {
@@ -121,7 +121,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
         
         // Save to global cache without cloning
         let mut cache = get_dataframe_cache().write().unwrap_or_else(|e| e.into_inner());
-        *cache = Some(df);
+        *cache = Some(CachedData { df, tipo: tipo.clone() });
 
         Ok(json)
     }
@@ -130,20 +130,21 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
 #[tauri::command]
 fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize>) -> Result<Vec<(f64, f64)>, String> {
     let cache = get_dataframe_cache().read().unwrap_or_else(|e| e.into_inner());
-    let df = match &*cache {
-        Some(df) => df,
+    let cached = match &*cache {
+        Some(c) => c,
         None => return Err("No hay datos cargados en memoria. Cargue un archivo CSV primero.".to_string()),
     };
+    let df = &cached.df;
 
-    let x_series = df.column(&x_col).map_err(|e| e.to_string())?;
-    let y_series = df.column(&y_col).map_err(|e| e.to_string())?;
+    let x_series = df.column(&x_col).map_err(|e: PolarsError| e.to_string())?;
+    let y_series = df.column(&y_col).map_err(|e: PolarsError| e.to_string())?;
 
     // Keep dynamic casts owned in local scope so borrows can live as long as iterators
     let x_cast;
     let x_ref = if matches!(x_series.dtype(), DataType::String | DataType::Int64 | DataType::Float64) {
         x_series
     } else {
-        x_cast = x_series.cast(&DataType::Float64).map_err(|e| e.to_string())?;
+        x_cast = x_series.cast(&DataType::Float64).map_err(|e: PolarsError| e.to_string())?;
         &x_cast
     };
 
@@ -151,7 +152,7 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
     let y_ref = if matches!(y_series.dtype(), DataType::String | DataType::Int64 | DataType::Float64) {
         y_series
     } else {
-        y_cast = y_series.cast(&DataType::Float64).map_err(|e| e.to_string())?;
+        y_cast = y_series.cast(&DataType::Float64).map_err(|e: PolarsError| e.to_string())?;
         &y_cast
     };
 
@@ -159,35 +160,35 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
 
     let x_iter = match x_ref.dtype() {
         DataType::String => {
-            let ca = x_ref.str().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter().map(|opt_s| {
-                opt_s.and_then(|s| parse_date_to_epoch_days(s).or_else(|| s.parse::<f64>().ok()))
+            let ca = x_ref.str().map_err(|e: PolarsError| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_s: Option<&str>| {
+                opt_s.and_then(|s: &str| parse_date_to_epoch_days(s).or_else(|| s.parse::<f64>().ok()))
             })) as Box<dyn Iterator<Item = Option<f64>>>
         }
         DataType::Int64 => {
-            let ca = x_ref.i64().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter().map(|opt_v| opt_v.map(|v| v as f64)))
+            let ca = x_ref.i64().map_err(|e: PolarsError| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_v: Option<i64>| opt_v.map(|v: i64| v as f64))) as Box<dyn Iterator<Item = Option<f64>>>
         }
         _ => {
-            let ca = x_ref.f64().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter())
+            let ca = x_ref.f64().map_err(|e: PolarsError| e.to_string())?;
+            Box::new(ca.into_iter()) as Box<dyn Iterator<Item = Option<f64>>>
         }
     };
 
     let y_iter = match y_ref.dtype() {
         DataType::String => {
-            let ca = y_ref.str().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter().map(|opt_s| {
-                opt_s.and_then(|s| parse_date_to_epoch_days(s).or_else(|| s.parse::<f64>().ok()))
+            let ca = y_ref.str().map_err(|e: PolarsError| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_s: Option<&str>| {
+                opt_s.and_then(|s: &str| parse_date_to_epoch_days(s).or_else(|| s.parse::<f64>().ok()))
             })) as Box<dyn Iterator<Item = Option<f64>>>
         }
         DataType::Int64 => {
-            let ca = y_ref.i64().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter().map(|opt_v| opt_v.map(|v| v as f64)))
+            let ca = y_ref.i64().map_err(|e: PolarsError| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_v: Option<i64>| opt_v.map(|v: i64| v as f64))) as Box<dyn Iterator<Item = Option<f64>>>
         }
         _ => {
-            let ca = y_ref.f64().map_err(|e| e.to_string())?;
-            Box::new(ca.into_iter())
+            let ca = y_ref.f64().map_err(|e: PolarsError| e.to_string())?;
+            Box::new(ca.into_iter()) as Box<dyn Iterator<Item = Option<f64>>>
         }
     };
 
@@ -210,11 +211,20 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
 #[tauri::command]
 fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> {
     let cache = get_dataframe_cache().read().unwrap_or_else(|e| e.into_inner());
-    let df = match &*cache {
-        Some(df) => df,
+    let cached = match &*cache {
+        Some(c) => c,
         None => return Ok("[]".to_string()),
     };
 
+    // Validate schema type to prevent filtering mismatched schemas
+    if cached.tipo != tipo {
+        return Err(format!(
+            "Mapeo de datos inválido: Se solicitó filtrar por '{}', pero los datos en caché son de '{}'.",
+            tipo, cached.tipo
+        ));
+    }
+
+    let df = &cached.df;
     let q = query.trim();
     if q.is_empty() {
         if tipo == "inventario" {
@@ -228,7 +238,7 @@ fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> 
     let cols = df.get_column_names();
     let mut predicate = lit(false);
     for col_name in cols {
-        let dtype = df.column(col_name).map(|c| c.dtype().clone()).unwrap_or(DataType::Null);
+        let dtype = df.column(col_name).map(|c: &Series| c.dtype().clone()).unwrap_or(DataType::Null);
         if dtype == DataType::String {
             let cond = col(col_name)
                 .str()
@@ -239,7 +249,7 @@ fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> 
         }
     }
 
-    let filtered_df = df.clone().lazy().filter(predicate).collect().map_err(|e| e.to_string())?;
+    let filtered_df = df.clone().lazy().filter(predicate).collect().map_err(|e: PolarsError| e.to_string())?;
 
     if tipo == "inventario" {
         exportar_inventario_elite_definitivo(&filtered_df).map_err(|e| e.to_string())
@@ -352,5 +362,49 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_date_to_days() {
+        assert_eq!(date_to_days(1970, 1, 1), 0);
+        assert_eq!(date_to_days(2026, 6, 5), 20611);
+    }
+
+    #[test]
+    fn test_parse_date_to_epoch_days() {
+        assert_eq!(parse_date_to_epoch_days("1970-01-01"), Some(0.0));
+        assert_eq!(parse_date_to_epoch_days("2026-06-05"), Some(20611.0));
+        assert_eq!(parse_date_to_epoch_days("not-a-date"), None);
+    }
+
+    #[test]
+    fn test_lttb_basic() {
+        let data = vec![
+            (1.0, 10.0),
+            (2.0, 12.0),
+            (3.0, 15.0),
+            (4.0, 8.0),
+            (5.0, 20.0),
+        ];
+        let res = lttb(&data, 5);
+        assert_eq!(res.len(), 5);
+        assert_eq!(res[0], (1.0, 10.0));
+        assert_eq!(res[4], (5.0, 20.0));
+    }
+
+    #[test]
+    fn test_write_json_escaped() {
+        let mut buf = Vec::new();
+        json_utils::write_json_escaped(&mut buf, "hello \"world\"");
+        assert_eq!(String::from_utf8(buf).unwrap(), "\"hello \\\"world\\\"\"");
+
+        let mut buf2 = Vec::new();
+        json_utils::write_json_escaped(&mut buf2, "line\nbreak");
+        assert_eq!(String::from_utf8(buf2).unwrap(), "\"line\\nbreak\"");
+    }
 }
 
