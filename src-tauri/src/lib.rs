@@ -5,13 +5,13 @@ mod cleanup2;
 use cleanup::{procesar_etl_dsa, exportar_json_estricto};
 use cleanup2::{procesar_etl_inventario_elite, exportar_inventario_elite_definitivo};
 use polars::prelude::*;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{RwLock, OnceLock};
 
 // Global cache for processed DataFrame to avoid re-reading the CSV for chart queries.
-static DATAFRAME_CACHE: OnceLock<Mutex<Option<DataFrame>>> = OnceLock::new();
+static DATAFRAME_CACHE: OnceLock<RwLock<Option<DataFrame>>> = OnceLock::new();
 
-fn get_dataframe_cache() -> &'static Mutex<Option<DataFrame>> {
-    DATAFRAME_CACHE.get_or_init(|| Mutex::new(None))
+fn get_dataframe_cache() -> &'static RwLock<Option<DataFrame>> {
+    DATAFRAME_CACHE.get_or_init(|| RwLock::new(None))
 }
 
 // Howard Hinnant's algorithm to calculate days since 1970-01-01 for any Gregorian date.
@@ -33,36 +33,6 @@ fn parse_date_to_epoch_days(date_str: &str) -> Option<f64> {
     let m = parts[1].parse::<i32>().ok()?;
     let d = parts[2].parse::<i32>().ok()?;
     Some(date_to_days(y, m, d) as f64)
-}
-
-// Convert a Polars Series to a Vec of optional f64, parsing date strings if necessary.
-fn col_to_f64_vec(df: &DataFrame, col_name: &str) -> Result<Vec<Option<f64>>, String> {
-    let series = df.column(col_name).map_err(|e| e.to_string())?;
-    match series.dtype() {
-        DataType::String => {
-            let ca = series.str().map_err(|e| e.to_string())?;
-            let v: Vec<Option<f64>> = ca.into_iter().map(|opt_s| {
-                opt_s.and_then(|s| parse_date_to_epoch_days(s))
-            }).collect();
-            Ok(v)
-        }
-        DataType::Int64 => {
-            let ca = series.i64().map_err(|e| e.to_string())?;
-            let v: Vec<Option<f64>> = ca.into_iter().map(|opt_v| opt_v.map(|v| v as f64)).collect();
-            Ok(v)
-        }
-        DataType::Float64 => {
-            let ca = series.f64().map_err(|e| e.to_string())?;
-            let v: Vec<Option<f64>> = ca.into_iter().collect();
-            Ok(v)
-        }
-        _ => {
-            let casted = series.cast(&DataType::Float64).map_err(|e| e.to_string())?;
-            let ca = casted.f64().map_err(|e| e.to_string())?;
-            let v: Vec<Option<f64>> = ca.into_iter().collect();
-            Ok(v)
-        }
-    }
 }
 
 // LTTB (Largest Triangle Three Buckets) downsampling algorithm.
@@ -133,7 +103,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
         let df = procesar_etl_inventario_elite(&path).map_err(|e| e.to_string())?;
         
         // Save to global cache
-        let mut cache = get_dataframe_cache().lock().unwrap();
+        let mut cache = get_dataframe_cache().write().unwrap();
         *cache = Some(df.clone());
 
         exportar_inventario_elite_definitivo(&df).map_err(|e| e.to_string())
@@ -141,7 +111,7 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
         let df = procesar_etl_dsa(&path).map_err(|e| e.to_string())?;
         
         // Save to global cache
-        let mut cache = get_dataframe_cache().lock().unwrap();
+        let mut cache = get_dataframe_cache().write().unwrap();
         *cache = Some(df.clone());
 
         exportar_json_estricto(&df).map_err(|e| e.to_string())
@@ -150,17 +120,65 @@ fn procesar_csv_command(path: String, tipo: String) -> Result<String, String> {
 
 #[tauri::command]
 fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize>) -> Result<Vec<(f64, f64)>, String> {
-    let cache = get_dataframe_cache().lock().unwrap();
+    let cache = get_dataframe_cache().read().unwrap();
     let df = match &*cache {
         Some(df) => df,
         None => return Err("No hay datos cargados en memoria. Cargue un archivo CSV primero.".to_string()),
     };
 
-    let x_data = col_to_f64_vec(df, &x_col)?;
-    let y_data = col_to_f64_vec(df, &y_col)?;
+    let x_series = df.column(&x_col).map_err(|e| e.to_string())?;
+    let y_series = df.column(&y_col).map_err(|e| e.to_string())?;
 
-    let mut points = Vec::with_capacity(x_data.len());
-    for (x_opt, y_opt) in x_data.into_iter().zip(y_data.into_iter()) {
+    // Keep dynamic casts owned in local scope so borrows can live as long as iterators
+    let x_cast;
+    let x_ref = if matches!(x_series.dtype(), DataType::String | DataType::Int64 | DataType::Float64) {
+        x_series
+    } else {
+        x_cast = x_series.cast(&DataType::Float64).map_err(|e| e.to_string())?;
+        &x_cast
+    };
+
+    let y_cast;
+    let y_ref = if matches!(y_series.dtype(), DataType::String | DataType::Int64 | DataType::Float64) {
+        y_series
+    } else {
+        y_cast = y_series.cast(&DataType::Float64).map_err(|e| e.to_string())?;
+        &y_cast
+    };
+
+    let mut points = Vec::with_capacity(df.height());
+
+    let x_iter = match x_ref.dtype() {
+        DataType::String => {
+            let ca = x_ref.str().map_err(|e| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_s| opt_s.and_then(parse_date_to_epoch_days))) as Box<dyn Iterator<Item = Option<f64>>>
+        }
+        DataType::Int64 => {
+            let ca = x_ref.i64().map_err(|e| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_v| opt_v.map(|v| v as f64)))
+        }
+        _ => {
+            let ca = x_ref.f64().map_err(|e| e.to_string())?;
+            Box::new(ca.into_iter())
+        }
+    };
+
+    let y_iter = match y_ref.dtype() {
+        DataType::String => {
+            let ca = y_ref.str().map_err(|e| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_s| opt_s.and_then(parse_date_to_epoch_days))) as Box<dyn Iterator<Item = Option<f64>>>
+        }
+        DataType::Int64 => {
+            let ca = y_ref.i64().map_err(|e| e.to_string())?;
+            Box::new(ca.into_iter().map(|opt_v| opt_v.map(|v| v as f64)))
+        }
+        _ => {
+            let ca = y_ref.f64().map_err(|e| e.to_string())?;
+            Box::new(ca.into_iter())
+        }
+    };
+
+    for (x_opt, y_opt) in x_iter.zip(y_iter) {
         if let (Some(x), Some(y)) = (x_opt, y_opt) {
             points.push((x, y));
         }
@@ -176,7 +194,7 @@ fn obtener_datos_decimados(x_col: String, y_col: String, n_buckets: Option<usize
 
 #[tauri::command]
 fn filtrar_datos_command(query: String, tipo: String) -> Result<String, String> {
-    let cache = get_dataframe_cache().lock().unwrap();
+    let cache = get_dataframe_cache().read().unwrap();
     let df = match &*cache {
         Some(df) => df,
         None => return Ok("[]".to_string()),
